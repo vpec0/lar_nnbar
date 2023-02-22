@@ -1,7 +1,8 @@
 // framework includes
 #include "art/Framework/Core/ModuleMacros.h"
 #include "art/Framework/Core/EDAnalyzer.h"
-#include "art/Framework/Services/Optional/TFileService.h"
+#include "art/Framework/Principal/Event.h"
+#include "art_root_io/TFileService.h"
 #include "fhiclcpp/ParameterSet.h"
 
 // data product includes
@@ -29,9 +30,9 @@
 #include <map>
 
 // local includes
-#include "DataFormat/EventImage2D.h"
-#include "DataFormat/EventROI.h"
-#include "DataFormat/IOManager.h"
+#include "larcv/core/DataFormat/EventImage2D.h"
+#include "larcv/core/DataFormat/EventROI.h"
+#include "larcv/core/DataFormat/IOManager.h"
 
 #include <iostream>
 #include <fstream>
@@ -39,14 +40,14 @@
 namespace nnbar {
 
 class LArCVMaker : public art::EDAnalyzer {
-  
+
 public:
 
   explicit LArCVMaker(fhicl::ParameterSet const & pset);
   void analyze(art::Event const& evt);
   void beginJob();
   void endJob();
-  
+
 
 private:
 
@@ -96,7 +97,7 @@ LArCVMaker::LArCVMaker(fhicl::ParameterSet const & pset) :
 
 void LArCVMaker::beginJob() {
   std::ofstream pdg;
-  
+
   std::string filename;
   if (std::getenv("PROCESS") != nullptr) filename = "larcv_" + std::string(std::getenv("PROCESS")) + ".root";
   else filename = "larcv.root";
@@ -107,7 +108,7 @@ void LArCVMaker::beginJob() {
 } // function LArCVMaker::beginJob
 
 void LArCVMaker::endJob() {
-  
+
   SpectrumFile->cd();
   hADCSpectrum->Write();
   SpectrumFile->Close();
@@ -142,13 +143,13 @@ void LArCVMaker::SetROISize() {
 
 int LArCVMaker::FindAPAWithNeutrino(std::vector<int> apas, art::Event const & evt) {
 
-  int fVertexAPA =-1;  
+  int fVertexAPA =-1;
   int best_apa = -1;
 
   art::Handle<std::vector<simb::MCTruth>> TruthListHandle;
   std::vector<art::Ptr<simb::MCTruth>> TruthList;
   if (evt.getByLabel("marley",TruthListHandle))//
-  
+
   art::fill_ptr_vector(TruthList,TruthListHandle);
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);
 
@@ -162,16 +163,15 @@ int LArCVMaker::FindAPAWithNeutrino(std::vector<int> apas, art::Event const & ev
 
 
   art::ServiceHandle<geo::Geometry> geo;
-  for (size_t it_tpc = 0; it_tpc < geo->NTPC(); ++it_tpc) {
-    const geo::TPCGeo & tpc = geo->TPC(it_tpc);
+  unsigned int itpc = 0;
+  for (auto tpc_it = geo->begin<geo::TPCGeo>(); tpc_it != geo->end<geo::TPCGeo>(); ++tpc_it) {
+      const geo::TPCGeo & tpc = *tpc_it;
 
-    if (tpc.ContainsPosition(vertex_position)) {
-      fVertexAPA = std::floor((float)it_tpc/2);
-
-      //std::cout << "which tpc contains vertex? "<<it_tpc << std::endl;
-      //std::cout << "which APA is assigned? " << fVertexAPA << std::endl;
-      break;
-    }
+      if (tpc.ContainsPosition(vertex_position)) {
+	  fVertexAPA = std::floor((float)itpc/2); // This assumes 1x2x6 workspace geometry, where 1 APA is shared by 2 TPCs.
+	  break;
+      }
+      ++itpc;
   }
 
 
@@ -186,13 +186,13 @@ int LArCVMaker::FindAPAWithNeutrino(std::vector<int> apas, art::Event const & ev
 
 int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & evt) {
 
-  int fVertexTPC =-1;  
+  int fVertexTPC =-1;
   int best_tpc = -1;
 
   art::Handle<std::vector<simb::MCTruth>> TruthListHandle;
   std::vector<art::Ptr<simb::MCTruth>> TruthList;
   if (evt.getByLabel("marley",TruthListHandle))
-  
+
   art::fill_ptr_vector(TruthList,TruthListHandle);
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);
 
@@ -206,18 +206,16 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
 
 
   art::ServiceHandle<geo::Geometry> geo;
-  for (size_t it_tpc = 0; it_tpc < geo->NTPC(); ++it_tpc) {
-    const geo::TPCGeo & tpc = geo->TPC(it_tpc);
+  unsigned int itpc = 0;
+  for (auto tpc_it = geo->begin<geo::TPCGeo>(); tpc_it != geo->end<geo::TPCGeo>(); ++tpc_it) {
+      const geo::TPCGeo & tpc = *tpc_it;
 
-    if (tpc.ContainsPosition(vertex_position)) {
-      fVertexTPC = it_tpc;
-
-      //std::cout << "which tpc contains vertex? "<<it_tpc << std::endl;
-      //std::cout << "which TPC is assigned? " << fVertexTPC << std::endl;
-      break;
-    }
+      if (tpc.ContainsPosition(vertex_position)) {
+	  fVertexTPC = itpc;
+	  break;
+      }
+      ++itpc;
   }
-
 
   best_tpc = fVertexTPC;
   //std::cout<< best_tpc <<std::endl;
@@ -227,7 +225,7 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
 } // function LArCVMaker::FindBestAPA
 
 int LArCVMaker::FindROI(int best_apa, int plane) {
-  
+
   ResetROI();
 
   //std::cout << "setting ROI as full APA" <<std::endl;
@@ -249,9 +247,9 @@ int LArCVMaker::FindROI(int best_apa, int plane) {
     fFirstWire = (2560*best_apa)+1600;
     fLastWire = (2560*best_apa)+2559;
   }
-  //std::cout <<"ROI set!"<<std::endl; 
- 
-  
+  //std::cout <<"ROI set!"<<std::endl;
+
+
   SetROISize();
 
   int downsample = 1;
@@ -281,7 +279,7 @@ void LArCVMaker::analyze(art::Event const & evt) {
       it != wireh->end(); ++it) {
     const raw::RawDigit & rawr = *it;
 
-      
+
     raw::RawDigit::ADCvector_t adc(rawr.Samples());
     raw::Uncompress(rawr.ADCs(), adc, rawr.Compression());
 
@@ -297,10 +295,10 @@ void LArCVMaker::analyze(art::Event const & evt) {
     return;
   }
   //int best_apa = FindAPAWithNeutrino(apas,evt);
-  
+
   int best_tpc = FindTPCWithNeutrino(apas,evt);
   //int best_tpc = rand() % 24;//for rad.
-   
+
   std::cout << "best_tpc %2 " << best_tpc%2 << std::endl;
 
   int best_apa = std::floor((float)best_tpc/2);
@@ -328,7 +326,7 @@ void LArCVMaker::analyze(art::Event const & evt) {
     std::cout << "downsampleing? " << downsample << std::endl;
     std::cout << "PLANE " << it_plane << " IMAGE" << std::endl;
     std::cout << "Original image resolution " << fNumberWires << "x" << fNumberTicks;
-    larcv::Image2D image(fNumberWires/2,fNumberTicks);//fNumberWires -> 
+    larcv::Image2D image(fNumberWires/2,fNumberTicks);//fNumberWires ->
     for (int it_channel = 0; it_channel < fNumberWires/2; ++it_channel) {
       int channel = it_channel + fFirstWire;
       if (best_tpc%2 == 1){
@@ -338,12 +336,12 @@ void LArCVMaker::analyze(art::Event const & evt) {
         int tick = it_tick + fFirstTick;
         if (fWireMap.find(channel) != fWireMap.end()) {
 	  image.set_pixel(it_channel,it_tick,fWireMap[channel][tick]);
-     
-	  //  if (it_plane ==2) 
+
+	  //  if (it_plane ==2)
 	  if (fWireMap[channel][tick]!=0) {
 	    hADCSpectrum->Fill(fWireMap[channel][tick]);
 	  }
-	  //std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl; 
+	  //std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
 	}
       }
     }
@@ -355,12 +353,12 @@ void LArCVMaker::analyze(art::Event const & evt) {
     images->Emplace(std::move(image));
     std::cout << "emplace done" << std::endl;
   }
-  
+
   auto roi_v = (larcv::EventROI*)(fMgr.get_data(larcv::kProductROI, "tpc"));
 
   larcv::ROI roi((larcv::ROIType_t)fEventType);
 
- 
+
   //  art::Handle<std::vector<simb::MCTruth>> TruthListHandle;
   //  std::vector<art::Ptr<simb::MCTruth>> TruthList;
 
@@ -381,4 +379,3 @@ void LArCVMaker::analyze(art::Event const & evt) {
 DEFINE_ART_MODULE(LArCVMaker)
 
 } // namespace nnbar
-

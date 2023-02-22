@@ -59,7 +59,7 @@ find_ups_product( cetbuildtools v3_10_00 )
 find_ups_product( postgresql v9_1_5 )
 find_ups_boost( v1_53_0 )
 find_ups_product( ifdh_art )
-find_ups_product( dunetpc v06_24_00 )
+find_ups_product( dunesw v09_66_02d00 )
 
 # macros for dictionary and simple_plugin
 include(ArtDictionary)
