@@ -61,6 +61,9 @@ private:
   larcv::IOManager fMgr;
 
   std::string fWireModuleLabel;
+  std::string fMCTruthModuleLabel;
+  std::string fDataFileName;
+  std::string fSpectrumFileName;
   int fMaxTick;
   int fADCCut;
   int fEventType;
@@ -90,6 +93,9 @@ LArCVMaker::LArCVMaker(fhicl::ParameterSet const & pset) :
     EDAnalyzer(pset),
     fMgr(larcv::IOManager::kWRITE),
     fWireModuleLabel(pset.get<std::string>("WireModuleLabel")),
+    fMCTruthModuleLabel(pset.get<std::string>("MCTruthModuleLabel")),
+    fDataFileName(pset.get<std::string>("DataFileName")),
+    fSpectrumFileName(pset.get<std::string>("SpectrumFileName")),
     fMaxTick(pset.get<int>("MaxTick")),
     fADCCut(pset.get<int>("ADCCut")),
     fEventType(pset.get<int>("EventType"))
@@ -100,10 +106,10 @@ void LArCVMaker::beginJob() {
 
   std::string filename;
   if (std::getenv("PROCESS") != nullptr) filename = "larcv_" + std::string(std::getenv("PROCESS")) + ".root";
-  else filename = "larcv.root";
+  else filename = fDataFileName;
   fMgr.set_out_file(filename);
   fMgr.initialize();
-  SpectrumFile = new TFile("./SignalADCSpectrum.root","RECREATE");
+  SpectrumFile = new TFile(fSpectrumFileName.c_str(),"RECREATE");
   hADCSpectrum = new TH1D("hADCSpectrum","ADC Spectrum Collection; ADC; Entries",4096, 0., 4096.);
 } // function LArCVMaker::beginJob
 
@@ -191,7 +197,7 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
 
   art::Handle<std::vector<simb::MCTruth>> TruthListHandle;
   std::vector<art::Ptr<simb::MCTruth>> TruthList;
-  if (evt.getByLabel("marley",TruthListHandle))
+  if (evt.getByLabel(fMCTruthModuleLabel, TruthListHandle))
 
   art::fill_ptr_vector(TruthList,TruthListHandle);
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);

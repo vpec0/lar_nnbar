@@ -2,10 +2,13 @@ BEGIN_PROLOG
 
 LArCVMaker:
 {
- module_type:             "nnbar/LArCVMaker/LArCVMaker"
- WireModuleLabel:         "daq"
- MaxTick:                 4492
- ADCCut:                  20
+   module_type:             "nnbar/LArCVMaker/LArCVMaker"
+   WireModuleLabel:         "daq"
+   MCTruthModuleLabel:      "generator"
+   DataFileName:            "larcv.root"
+   SpectrumFileName:        "SignalADCSpectrum.root"
+   MaxTick:                 4492
+   ADCCut:                  20
 }
 
 END_PROLOG
