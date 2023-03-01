@@ -202,10 +202,10 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
   art::fill_ptr_vector(TruthList,TruthListHandle);
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);
 
-  for ( auto i = 0; i < mct->NParticles(); i++ ) {
-    //std::cout <<"mother: "<< mct->GetParticle(i).Mother() << std::endl;
-    //std::cout << "pdg: " <<mct->GetParticle(i).PdgCode() <<std::endl;
-  }
+  // for ( auto i = 0; i < mct->NParticles(); i++ ) {
+  //   //std::cout <<"mother: "<< mct->GetParticle(i).Mother() << std::endl;
+  //   //std::cout << "pdg: " <<mct->GetParticle(i).PdgCode() <<std::endl;
+  // }
   TVector3  vertex_position = mct->GetParticle(0).Position(0).Vect();
   //std::cout<<"mother code picked: "<<mct->GetParticle(0).Mother();
   //std::cout<<"position: "<<vertex_position.x() <<"," <<vertex_position.y() <<"," <<vertex_position.z() <<std::endl;
@@ -325,31 +325,37 @@ void LArCVMaker::analyze(art::Event const & evt) {
   }
 
   // produce image
+  const int nticks_skip = 8; // number of ticks to skip to cover for gap between collection planes on each side of the APA
+
   auto images = (larcv::EventImage2D*)(fMgr.get_data(larcv::kProductImage2D, "tpc"));
   std::cout << std::endl;
   for (int it_plane = 2; it_plane < 3; ++it_plane) {
     int downsample = FindROI(best_apa,it_plane);
-    std::cout << "downsampleing? " << downsample << std::endl;
+    std::cout << "downsampling? " << downsample << std::endl;
     std::cout << "PLANE " << it_plane << " IMAGE" << std::endl;
-    std::cout << "Original image resolution " << fNumberWires << "x" << fNumberTicks;
-    larcv::Image2D image(fNumberWires/2,fNumberTicks);//fNumberWires ->
-    for (int it_channel = 0; it_channel < fNumberWires/2; ++it_channel) {
-      int channel = it_channel + fFirstWire;
-      if (best_tpc%2 == 1){
-	channel = it_channel + fFirstWire + 480;
-      }
-      for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
-        int tick = it_tick + fFirstTick;
-        if (fWireMap.find(channel) != fWireMap.end()) {
-	  image.set_pixel(it_channel,it_tick,fWireMap[channel][tick]);
+    std::cout << "Original image resolution " << fNumberWires << "x" << fNumberTicks << std::endl;
+    larcv::Image2D image(fNumberWires/(2*(it_plane==2)),2*fNumberTicks + nticks_skip);// read TPCs on both sides of APA
+    for (int it_tpc = 0; it_tpc < 2; ++it_tpc) {
+	int which_tpc = (best_tpc/2)*2 + it_tpc;
+	for (int it_channel = 0; it_channel < fNumberWires/(2*(it_plane==2)); ++it_channel) {
+	    int channel = it_channel + fFirstWire;
+	    if (which_tpc%2 == 1){
+		channel = it_channel + fFirstWire + 480*(it_plane==2); // other side of the APA
+	    }
+	    for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
+		int tick = it_tick + fFirstTick;
+		if (fWireMap.find(channel) != fWireMap.end()) {
+		    image.set_pixel(it_channel,fNumberTicks + nticks_skip + it_tick*(1 - 2*(which_tpc%2)) - nticks_skip*(which_tpc%2),fWireMap[channel][tick]);
 
-	  //  if (it_plane ==2)
-	  if (fWireMap[channel][tick]!=0) {
-	    hADCSpectrum->Fill(fWireMap[channel][tick]);
-	  }
-	  //std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
+		    //  if (it_plane ==2)
+		    if (fWireMap[channel][tick]!=0) {
+			hADCSpectrum->Fill(fWireMap[channel][tick]);
+		    }
+		    // if (fWireMap[channel][tick])
+		    //     std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
+		}
+	    }
 	}
-      }
     }
     //yj commented this out june 20th 2019
     // image.compress(fNumberWires/downsample,fNumberTicks/(4*downsample));
