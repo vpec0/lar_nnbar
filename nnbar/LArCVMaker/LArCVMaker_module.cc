@@ -12,7 +12,13 @@
 #include "lardataobj/RawData/raw.h"
 
 #include "nusimdata/SimulationBase/MCTruth.h"
-#include "lardataobj/Simulation/SupernovaTruth.h"
+//#include "lardataobj/Simulation/SupernovaTruth.h"
+
+#include "lardataobj/RecoBase/Hit.h"
+#include "lardataobj/RecoBase/Cluster.h"
+#include "lardataobj/RecoBase/Track.h"
+#include "lardataobj/RecoBase/Shower.h"
+
 
 // root includes
 #include "TFile.h"
@@ -37,9 +43,33 @@
 #include <iostream>
 #include <fstream>
 
+//#define DEBUG
+
+#ifndef FOR
+#define FOR(i, size) for (unsigned int i = 0; i < size; ++i)
+#endif
+
 namespace nnbar {
 
 class LArCVMaker : public art::EDAnalyzer {
+
+public:
+	enum {
+		kKaon = 321,
+		kK0 = 311,
+		kK0S = 310,
+		kK0L = 130,
+		kProton = 2212,
+		kNeutron = 2112,
+		kPi = 211,
+		kPi0 = 111,
+		kMu = 13,
+		kEl = 11,
+		kGamma = 22
+	};
+
+	std::set<unsigned int> fVisibleParticles;
+	std::map<unsigned int, const char* > fParticleLabel;
 
 public:
 
@@ -57,13 +87,21 @@ private:
   int FindAPAWithNeutrino(std::vector<int> apas, art::Event const & evt);
   int FindTPCWithNeutrino(std::vector<int> apas, art::Event const & evt);
   int FindROI(int apa, int plane);
-
+	int Preselect(art::Event const& evt);
   larcv::IOManager fMgr;
 
   std::string fWireModuleLabel;
   std::string fMCTruthModuleLabel;
+  std::string fG4ModuleLabel;
+
+  std::string fHitModuleLabel;
+  std::string fClusterModuleLabel;
+  std::string fTrackModuleLabel;
+  std::string fShowerModuleLabel;
+
   std::string fDataFileName;
   std::string fSpectrumFileName;
+
   int fMaxTick;
   int fADCCut;
   int fEventType;
@@ -82,7 +120,17 @@ private:
   int fNumberWires;
   int fNumberTicks;
 
-  std::map<int,std::vector<float>> fWireMap;
+	int fDoPreselection;
+	int fNHitsMax;
+	int fNHitsMin;
+	int fNClustersMax;
+	int fNClustersMin;
+	int fNTracksMax;
+	int fNTracksMin;
+	int fNShowersMax;
+	float fTrackLenMax;
+
+  std::map<int, std::vector<float> > fWireMap;
   //std::ofstream pdg;
   TH1D* hADCSpectrum;
   TFile* SpectrumFile;
@@ -94,12 +142,64 @@ LArCVMaker::LArCVMaker(fhicl::ParameterSet const & pset) :
     fMgr(larcv::IOManager::kWRITE),
     fWireModuleLabel(pset.get<std::string>("WireModuleLabel")),
     fMCTruthModuleLabel(pset.get<std::string>("MCTruthModuleLabel")),
+    fG4ModuleLabel(pset.get<std::string>("G4ModuleLabel")),
+    fHitModuleLabel(pset.get<std::string>("HitModuleLabel")),
+    fClusterModuleLabel(pset.get<std::string>("ClusterModuleLabel")),
+    fTrackModuleLabel(pset.get<std::string>("TrackModuleLabel")),
+    fShowerModuleLabel(pset.get<std::string>("ShowerModuleLabel")),
     fDataFileName(pset.get<std::string>("DataFileName")),
     fSpectrumFileName(pset.get<std::string>("SpectrumFileName")),
     fMaxTick(pset.get<int>("MaxTick")),
     fADCCut(pset.get<int>("ADCCut")),
-    fEventType(pset.get<int>("EventType"))
-{} // function LArCVMaker::LArCVMaker
+    fEventType(pset.get<int>("EventType")),
+    fDoPreselection(pset.get<int>("DoPreselection")),
+    fNHitsMax(pset.get<int>("NHitsMax")),
+    fNHitsMin(pset.get<int>("NHitsMin")),
+    fNClustersMax(pset.get<int>("NClustersMax")),
+    fNClustersMin(pset.get<int>("NClustersMin")),
+    fNTracksMax(pset.get<int>("NTracksMax")),
+    fNTracksMin(pset.get<int>("NTracksMin")),
+    fNShowersMax(pset.get<int>("NShowersMax")),
+    fTrackLenMax(pset.get<float>("TrackLenMax"))
+{
+
+	unsigned int tmp_list[] = {
+		kKaon,
+		kK0,
+		kK0S,
+		kK0L,
+		kProton,
+		kNeutron,
+		kPi,
+		kPi0,
+		kMu,
+		kEl,
+		kGamma
+	};
+
+	fVisibleParticles = std::set<unsigned int>(tmp_list, tmp_list+11);
+
+	fParticleLabel = {
+		{kKaon, "K"},
+		{kK0, "K0"},
+		{kK0S, "K0S"},
+		{kK0L, "K0L"},
+		{kProton, "p"},
+		{kNeutron, "n"},
+		{kPi, "pi"},
+		{kPi0, "pi0"},
+		{kMu, "mu"},
+		{kEl, "el"},
+		{kGamma, "gamma"}
+	};
+
+	for (auto pair: fParticleLabel) {
+		std::cout<<pair.first<<" "<<pair.second<<std::endl;
+	}
+
+
+	std::cout<<"LArCVMaker: will do preselection = "<<fDoPreselection<<std::endl;
+} // function LArCVMaker::LArCVMaker
 
 void LArCVMaker::beginJob() {
   std::ofstream pdg;
@@ -160,8 +260,9 @@ int LArCVMaker::FindAPAWithNeutrino(std::vector<int> apas, art::Event const & ev
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);
 
   for ( auto i = 0; i < mct->NParticles(); i++ ) {
-    //std::cout <<"mother: "<< mct->GetParticle(i).Mother() << std::endl;
-    //std::cout << "pdg: " <<mct->GetParticle(i).PdgCode() <<std::endl;
+      std::cout <<"MC Truth particle "<<i<<":"<< std::endl;
+      std::cout <<"  mother: "<< mct->GetParticle(i).Mother() << std::endl;
+      std::cout <<"  pdg: " <<mct->GetParticle(i).PdgCode() << std::endl;
   }
   TVector3  vertex_position = mct->GetParticle(0).Position(0).Vect();
   //std::cout<<"mother code picked: "<<mct->GetParticle(0).Mother();
@@ -171,13 +272,13 @@ int LArCVMaker::FindAPAWithNeutrino(std::vector<int> apas, art::Event const & ev
   art::ServiceHandle<geo::Geometry> geo;
   unsigned int itpc = 0;
   for (auto tpc_it = geo->begin<geo::TPCGeo>(); tpc_it != geo->end<geo::TPCGeo>(); ++tpc_it) {
-      const geo::TPCGeo & tpc = *tpc_it;
+		const geo::TPCGeo & tpc = *tpc_it;
 
-      if (tpc.ContainsPosition(vertex_position)) {
-	  fVertexAPA = std::floor((float)itpc/2); // This assumes 1x2x6 workspace geometry, where 1 APA is shared by 2 TPCs.
-	  break;
-      }
-      ++itpc;
+		if (tpc.ContainsPosition(vertex_position)) {
+			fVertexAPA = std::floor((float)itpc/2); // This assumes 1x2x6 workspace geometry, where 1 APA is shared by 2 TPCs.
+			break;
+		}
+		++itpc;
   }
 
 
@@ -202,10 +303,55 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
   art::fill_ptr_vector(TruthList,TruthListHandle);
   art::Ptr<simb::MCTruth> mct = TruthList.at(0);
 
-  // for ( auto i = 0; i < mct->NParticles(); i++ ) {
-  //   //std::cout <<"mother: "<< mct->GetParticle(i).Mother() << std::endl;
-  //   //std::cout << "pdg: " <<mct->GetParticle(i).PdgCode() <<std::endl;
-  // }
+  // int npi = 0;
+  // int npi0 = 0;
+  // int nprot = 0;
+  // int nneutron = 0;
+  // double EKaon = 0.;
+  // double EhadTot = 0.;
+
+	std::vector<unsigned int> primaries;
+	std::vector<float> primary_energies;
+	//	unsigned int ikaon = 999;
+
+  for ( auto i = 0; i < mct->NParticles(); i++ ) {
+      if ( mct->GetParticle(i).StatusCode() != 1 ) continue;
+      auto mom = mct->GetParticle(i).Momentum();
+
+      int pdg = mct->GetParticle(i).PdgCode();
+			if (fVisibleParticles.find(abs(pdg)) == fVisibleParticles.end()) continue;
+
+			if (pdg == kEl && mom.E() - mom.M() < 0.6e-3) continue;
+
+			primaries.push_back(abs(pdg));
+			primary_energies.push_back(mom.E() - mom.M()); // in GeV
+
+			// if (pdg == kKaon)
+			// 	ikaon = i;
+
+#ifdef DEBUG
+      std::cout <<"MC Truth particle "<<i<<":"<< std::endl;
+      std::cout <<"  pdg: " <<mct->GetParticle(i).PdgCode() << std::endl;
+      std::cout <<"  status: "<< mct->GetParticle(i).StatusCode() << std::endl;
+      std::cout <<"  KinE: " << (mom.E() - mom.M()) << std::endl;
+      std::cout <<"  track id: "<< mct->GetParticle(i).TrackId() << std::endl;
+      std::cout <<"  mother: "<< mct->GetParticle(i).Mother() << std::endl;
+#endif
+  }
+
+  // print out truth summary
+	std::cout<<"Primaries: "<<primaries.size()<<std::endl;
+  std::cout<<"p -> ";
+	std::cout.precision(3);
+	for(size_t i = 0; i < primaries.size(); ++i) {
+		//	std::cout<<i<<" "<<primaries[i]<<" "<<primary_energies[i]<<std::endl;
+		if (i > 0)
+			std::cout<<" + ";
+		std::cout<<fParticleLabel[primaries[i]]<<"("<<(primary_energies[i]*1e3)<<" MeV)";
+	}
+	std::cout<<std::endl;
+
+
   TVector3  vertex_position = mct->GetParticle(0).Position(0).Vect();
   //std::cout<<"mother code picked: "<<mct->GetParticle(0).Mother();
   //std::cout<<"position: "<<vertex_position.x() <<"," <<vertex_position.y() <<"," <<vertex_position.z() <<std::endl;
@@ -214,17 +360,87 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
   art::ServiceHandle<geo::Geometry> geo;
   unsigned int itpc = 0;
   for (auto tpc_it = geo->begin<geo::TPCGeo>(); tpc_it != geo->end<geo::TPCGeo>(); ++tpc_it) {
-      const geo::TPCGeo & tpc = *tpc_it;
+		const geo::TPCGeo & tpc = *tpc_it;
 
-      if (tpc.ContainsPosition(vertex_position)) {
-	  fVertexTPC = itpc;
-	  break;
-      }
-      ++itpc;
+		if (tpc.ContainsPosition(vertex_position)) {
+			fVertexTPC = itpc;
+			break;
+		}
+		++itpc;
   }
 
   best_tpc = fVertexTPC;
   //std::cout<< best_tpc <<std::endl;
+
+
+  // Extract info about output K destiny
+  art::Handle<std::vector<simb::MCParticle>> G4ListHandle;
+  std::vector<art::Ptr<simb::MCParticle>> PartList;
+  if (evt.getByLabel(fG4ModuleLabel, G4ListHandle))
+      art::fill_ptr_vector(PartList, G4ListHandle);
+
+	std::vector<unsigned int> kdaughters;
+	std::vector<float> daughter_energies;
+
+  // npi = 0;
+  // npi0 = 0;
+  for (art::Ptr<simb::MCParticle> part: PartList) {
+		if ( abs(part->PdgCode()) != kKaon ) continue; // interested in the kaon
+		if ( strcmp(part->EndProcess().c_str(), "Decay") ) continue; // this is not the decaying kaon... maybe inelastic scattering?
+
+		auto trkid = part->TrackId();
+
+#ifdef DEBUG
+		auto mom = part->Momentum();
+		std::cout << "Kaon end process: " << part->EndProcess() << std::endl;
+		std::cout <<"    pdg: " <<part->PdgCode() << std::endl;
+		std::cout <<"    status: "<< part->StatusCode() << std::endl;
+		std::cout <<"    KinE: " << (mom.E() - mom.M()) << std::endl;
+		std::cout <<"    track id: "<< part->TrackId() << std::endl;
+		std::cout <<"    mother: "<< part->Mother() << std::endl;
+
+		// print out daughters
+		std::cout <<"Kaon daughters (" << part->NumberDaughters() << "): " << std::endl;
+		std::cout <<"(particle list size: " << PartList.size() << ")" << std::endl;
+		for (int idaugh = 0; idaugh < part->NumberDaughters(); ++idaugh) {
+			auto d = PartList.at(part->Daughter(idaugh)-1);
+			auto mom = d->Momentum();
+			std::cout <<"  Daughter " << idaugh << "(" << part->Daughter(idaugh) << "):" << std::endl;
+			std::cout <<"    pdg: " <<d->PdgCode() << std::endl;
+			std::cout <<"    status: "<< d->StatusCode() << std::endl;
+			std::cout <<"    KinE: " << (mom.E() - mom.M()) << std::endl;
+			std::cout <<"    track id: "<< d->TrackId() << std::endl;
+			std::cout <<"    mother: "<< d->Mother() << std::endl;
+		}
+#endif
+
+		for (int idaugh = 0; idaugh < part->NumberDaughters(); ++idaugh) {
+			auto d = PartList.at(part->Daughter(idaugh)-1);
+			if (d->Mother() != trkid) continue; // this is not kaon's direct descendant
+
+			auto pdg = abs(d->PdgCode());
+			auto mom = d->Momentum();
+			auto kine = mom.E() - mom.M();
+			if (pdg == kEl && kine < 0.6e-3) continue;
+			if (fVisibleParticles.find(abs(pdg)) == fVisibleParticles.end()) continue;
+
+			kdaughters.push_back(pdg);
+			daughter_energies.push_back(kine);
+		}
+
+		break;
+  }
+
+	if (kdaughters.size() > 0) {
+		// print out kaon decay
+		std::cout<<"K -> ";
+		for(long unsigned i = 0; i < kdaughters.size(); ++i) {
+			if (i > 0)
+				std::cout<<" + ";
+			std::cout<<fParticleLabel[kdaughters[i]]<<"("<<(daughter_energies[i]*1e3)<<" MeV)";
+		}
+		std::cout<<std::endl;
+	}
 
   return best_tpc;
 
@@ -269,6 +485,15 @@ void LArCVMaker::analyze(art::Event const & evt) {
 
   fEvent = evt.event();
 
+  // Do pre-selection??
+	if (fDoPreselection && !Preselect(evt)) {
+		//#ifdef DEBUG
+		std::cout<<"LArCVMaker: Event does not meet selection criteria. Skipping."<<std::endl;
+		//#endif
+		return;
+	}
+
+
   fMgr.set_id(evt.id().run(),evt.id().subRun(),evt.id().event());
 
   //int fVertexAPA =-1;
@@ -280,6 +505,9 @@ void LArCVMaker::analyze(art::Event const & evt) {
   // initialize ROI finding variables
   std::vector<int> apas;
 
+  // initialize map of pedestals
+  std::map<int,float> pedestalMap;
+
   // fill wire map
   for (std::vector<raw::RawDigit>::const_iterator it = wireh->begin();
       it != wireh->end(); ++it) {
@@ -289,6 +517,11 @@ void LArCVMaker::analyze(art::Event const & evt) {
     raw::RawDigit::ADCvector_t adc(rawr.Samples());
     raw::Uncompress(rawr.ADCs(), adc, rawr.Compression());
 
+    // get pedestal for the channel
+    float pedestal = rawr.GetPedestal();
+    pedestalMap.insert(std::pair<int,float>(rawr.Channel(),pedestal));
+
+    // record adc for each channel
     fWireMap.insert(std::pair<int,std::vector<float>>(rawr.Channel(),std::vector<float>(adc.begin(),adc.end())));
     int apa = std::floor(rawr.Channel()/2560);
     if (std::find(apas.begin(),apas.end(),apa) == apas.end())
@@ -325,7 +558,7 @@ void LArCVMaker::analyze(art::Event const & evt) {
   }
 
   // produce image
-  const int nticks_skip = 8; // number of ticks to skip to cover for gap between collection planes on each side of the APA
+  const int nticks_skip = 80; // number of ticks to skip to cover for gap between collection planes on each side of the APA
 
   auto images = (larcv::EventImage2D*)(fMgr.get_data(larcv::kProductImage2D, "tpc"));
   std::cout << std::endl;
@@ -345,7 +578,9 @@ void LArCVMaker::analyze(art::Event const & evt) {
 	    for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
 		int tick = it_tick + fFirstTick;
 		if (fWireMap.find(channel) != fWireMap.end()) {
-		    image.set_pixel(it_channel,fNumberTicks + nticks_skip + it_tick*(1 - 2*(which_tpc%2)) - nticks_skip*(which_tpc%2),fWireMap[channel][tick]);
+		    image.set_pixel(it_channel,
+				    fNumberTicks + nticks_skip + it_tick*(1 - 2*(which_tpc%2)) - nticks_skip*(which_tpc%2),
+				    (fWireMap[channel][tick] > 0)?fWireMap[channel][tick] - pedestalMap[channel]:0);
 
 		    //  if (it_plane ==2)
 		    if (fWireMap[channel][tick]!=0) {
@@ -388,6 +623,107 @@ void LArCVMaker::analyze(art::Event const & evt) {
   std::cout << "save entry done" << std::endl;
 } // function LArCVMaker::analyze
 
+int LArCVMaker::Preselect(art::Event const& evt)
+{
+	int nhits = 0;
+	int nclusters = 0;
+	int ntracks = 0;
+	int nshowers = 0;
+	float maxtracklen = 0.;
+
+#ifdef DEBUG
+
+		auto hitListHandle = evt.getHandle< std::vector<recob::Hit> >(fHitModuleLabel);
+	if (hitListHandle)
+		nhits = hitListHandle->size();
+	auto clusterListHandle = evt.getHandle< std::vector<recob::Cluster> >(fClusterModuleLabel);
+	if (clusterListHandle)
+		nclusters = clusterListHandle->size();
+
+
+	auto trackListHandle = evt.getHandle< std::vector<recob::Track> >(fTrackModuleLabel);
+	if (trackListHandle)
+		ntracks = trackListHandle->size();
+
+	auto showerListHandle = evt.getHandle< std::vector<recob::Shower> >(fShowerModuleLabel);
+	if (showerListHandle)
+		nshowers = showerListHandle->size();
+
+	// iterate over reco tracks and get max track length
+	std::vector<art::Ptr<recob::Track> > tracklist;
+	if (trackListHandle)
+		art::fill_ptr_vector(tracklist, trackListHandle);
+
+	for (auto trk: tracklist) {
+		if (trk->Length() > maxtracklen)
+			maxtracklen = trk->Length();
+	}
+
+	std::cout<<"LArCVMaker: Basic variables:"<<std::endl;
+	std::cout<<"            nhits = "<<nhits<<std::endl
+					 <<"            nclusters = "<<nclusters<<std::endl
+					 <<"            ntracks = "<<ntracks<<std::endl
+					 <<"            nshowers = "<<nshowers<<std::endl
+					 <<"            maxtracklen = "<<maxtracklen<<std::endl;
+
+	if (nhits > fNHitsMax || nhits < fNHitsMin) return 0;
+	if (nclusters > fNClustersMax || nclusters < fNClustersMin) return 0;
+	if (ntracks > fNTracksMax || ntracks < fNTracksMin) return 0;
+	if (nshowers > fNShowersMax) return 0;
+	if (maxtracklen > fTrackLenMax) return 0;
+
+#else
+
+	// get product handles for hits, tracks, clusters and showers
+	//
+	// std::vector<art::Ptr<recob::Hit> > hitlist;
+	auto hitListHandle = evt.getHandle< std::vector<recob::Hit> >(fHitModuleLabel);
+	if (hitListHandle)
+		nhits = hitListHandle->size();
+
+	if (nhits > fNHitsMax || nhits < fNHitsMin) return 0;
+
+	auto clusterListHandle = evt.getHandle< std::vector<recob::Cluster> >(fClusterModuleLabel);
+	if (clusterListHandle)
+		nclusters = clusterListHandle->size();
+
+	if (nclusters > fNClustersMax || nclusters < fNClustersMin) return 0;
+
+	auto trackListHandle = evt.getHandle< std::vector<recob::Track> >(fTrackModuleLabel);
+	if (trackListHandle)
+		ntracks = trackListHandle->size();
+
+	if (ntracks > fNTracksMax || ntracks < fNTracksMin) return 0;
+
+
+	auto showerListHandle = evt.getHandle< std::vector<recob::Shower> >(fShowerModuleLabel);
+	if (showerListHandle)
+		nshowers = showerListHandle->size();
+
+	if (nshowers > fNShowersMax) return 0;
+
+	// iterate over reco tracks and get max track length
+	std::vector<art::Ptr<recob::Track> > tracklist;
+	if (trackListHandle)
+		art::fill_ptr_vector(tracklist, trackListHandle);
+
+	for (auto trk: tracklist) {
+		if (trk->Length() > maxtracklen)
+			maxtracklen = trk->Length();
+	}
+
+	if (maxtracklen > fTrackLenMax) return 0;
+
+#endif
+	return 1;
+}
+
+
 DEFINE_ART_MODULE(LArCVMaker)
 
 } // namespace nnbar
+
+// Local Variables:
+// tab-width: 2
+// c-basic-offset: 2
+// End:

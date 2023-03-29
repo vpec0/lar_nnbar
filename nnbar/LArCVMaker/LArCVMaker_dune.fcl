@@ -5,10 +5,26 @@ LArCVMaker:
    module_type:             "nnbar/LArCVMaker/LArCVMaker"
    WireModuleLabel:         "daq"
    MCTruthModuleLabel:      "generator"
+   G4ModuleLabel:           "largeant"
+   HitModuleLabel:	    "linecluster"
+   ClusterModuleLabel:	    "linecluster"
+   TrackModuleLabel:	    "pandoraTrack"
+   ShowerModuleLabel:       "pandoraShower"
    DataFileName:            "larcv.root"
    SpectrumFileName:        "SignalADCSpectrum.root"
    MaxTick:                 4492
    ADCCut:                  20
+
+   DoPreselection:	    0
+   NHitsMax:		    1200
+   NHitsMin:		    100
+   NClustersMax:	    80
+   NClustersMin:	    5
+   NTracksMax:		    6
+   NTracksMin:		    1
+   NShowersMax:		    4
+   TrackLenMax:             100.
+
 }
 
 END_PROLOG
