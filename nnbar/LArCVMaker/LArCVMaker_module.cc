@@ -201,6 +201,8 @@ LArCVMaker::LArCVMaker(fhicl::ParameterSet const & pset) :
 	std::cout<<"LArCVMaker: will do preselection = "<<fDoPreselection<<std::endl;
 } // function LArCVMaker::LArCVMaker
 
+
+
 void LArCVMaker::beginJob() {
   std::ofstream pdg;
 
@@ -213,6 +215,9 @@ void LArCVMaker::beginJob() {
   hADCSpectrum = new TH1D("hADCSpectrum","ADC Spectrum Collection; ADC; Entries",4096, 0., 4096.);
 } // function LArCVMaker::beginJob
 
+
+
+
 void LArCVMaker::endJob() {
 
   SpectrumFile->cd();
@@ -220,6 +225,9 @@ void LArCVMaker::endJob() {
   SpectrumFile->Close();
   fMgr.finalize();
 } // function LArCVMaker::endJob
+
+
+
 
 void LArCVMaker::ClearData() {
 
@@ -562,43 +570,71 @@ void LArCVMaker::analyze(art::Event const & evt) {
 
   auto images = (larcv::EventImage2D*)(fMgr.get_data(larcv::kProductImage2D, "tpc"));
   std::cout << std::endl;
-  for (int it_plane = 2; it_plane < 3; ++it_plane) {
+  for (int it_plane = 0; it_plane < 3; ++it_plane) { // run over all 3 planes
     int downsample = FindROI(best_apa,it_plane);
     std::cout << "downsampling? " << downsample << std::endl;
     std::cout << "PLANE " << it_plane << " IMAGE" << std::endl;
     std::cout << "Original image resolution " << fNumberWires << "x" << fNumberTicks << std::endl;
-    larcv::Image2D image(fNumberWires/(2*(it_plane==2)),2*fNumberTicks + nticks_skip);// read TPCs on both sides of APA
-    for (int it_tpc = 0; it_tpc < 2; ++it_tpc) {
-	int which_tpc = (best_tpc/2)*2 + it_tpc;
-	for (int it_channel = 0; it_channel < fNumberWires/(2*(it_plane==2)); ++it_channel) {
-	    int channel = it_channel + fFirstWire;
-	    if (which_tpc%2 == 1){
-		channel = it_channel + fFirstWire + 480*(it_plane==2); // other side of the APA
-	    }
-	    for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
-		int tick = it_tick + fFirstTick;
-		if (fWireMap.find(channel) != fWireMap.end()) {
-		    image.set_pixel(it_channel,
-				    fNumberTicks + nticks_skip + it_tick*(1 - 2*(which_tpc%2)) - nticks_skip*(which_tpc%2),
-				    (fWireMap[channel][tick] > 0)?fWireMap[channel][tick] - pedestalMap[channel]:0);
 
-		    //  if (it_plane ==2)
-		    if (fWireMap[channel][tick]!=0) {
-			hADCSpectrum->Fill(fWireMap[channel][tick]);
-		    }
-		    // if (fWireMap[channel][tick])
-		    //     std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
+		// std::cout<<"DBG: fNumberWires = "<<fNumberWires<<", it_plane = "<<it_plane<<std::endl;
+		int rows = (it_plane == 2) ? fNumberWires/2               : fNumberWires;
+		int cols = (it_plane == 2) ? 2*fNumberTicks + nticks_skip : fNumberTicks;
+		// std::cout<<"DBG: rows = "<<rows<<", cols = "<<cols<<std::endl;
+    larcv::Image2D image(rows, cols);// read TPCs on both sides of APA
+
+		if (it_plane == 2) {
+			for (int it_tpc = 0; it_tpc < 2; ++it_tpc) {
+				int which_tpc = (best_tpc/2)*2 + it_tpc;
+				for (int it_channel = 0; it_channel < fNumberWires/2; ++it_channel) {
+					int channel = it_channel + fFirstWire;
+					if (which_tpc%2 == 1){
+						channel = it_channel + fFirstWire + 480; // other side of the APA
+					}
+					for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
+						int tick = it_tick + fFirstTick;
+						if (fWireMap.find(channel) != fWireMap.end()) {
+							float adc = fWireMap[channel][tick];
+							image.set_pixel(it_channel,
+															fNumberTicks + nticks_skip + it_tick*(1 - 2*(which_tpc%2)) - (nticks_skip+1)*(which_tpc%2),
+															(adc > 0.)?adc - pedestalMap[channel]:0.);
+							//  if (it_plane ==2)
+							if (adc!=0.) {
+								hADCSpectrum->Fill(adc);
+							}
+							// if (fWireMap[channel][tick])
+							//     std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
+						}
+					}
+				}
+			}
+		} else {
+			for (int it_channel = 0; it_channel < fNumberWires; ++it_channel) {
+				int channel = it_channel + fFirstWire;
+				for (int it_tick = 0; it_tick < fNumberTicks; ++it_tick) {
+					int tick = it_tick + fFirstTick;
+					if (fWireMap.find(channel) != fWireMap.end()) {
+						float adc = fWireMap[channel][tick];
+						image.set_pixel(it_channel,
+														it_tick,
+														(adc > 0)?adc - pedestalMap[channel]:0);
+						//  if (it_plane ==2)
+						if (adc!=0) {
+							hADCSpectrum->Fill(adc);
+						}
+						// if (fWireMap[channel][tick])
+						//     std::cout << "it_channel : "<< it_channel << " , it_tick : " << it_tick << " , value : " << fWireMap[channel][tick] <<std::endl;
+					}
+				}
+			}
 		}
-	    }
-	}
-    }
+
     //yj commented this out june 20th 2019
     // image.compress(fNumberWires/downsample,fNumberTicks/(4*downsample));
     //std::cout << " => downsampling to " << fNumberWires/downsample << "x" << fNumberTicks/(4*downsample) << "." << std::endl << std::endl;
     //image.resize(600,600,0);
     //std::cout << "resized to 600 x 600" << std::endl;
     images->Emplace(std::move(image));
-    std::cout << "emplace done" << std::endl;
+    std::cout << "emplace for plane "<<it_plane<<" done" << std::endl;
   }
 
   auto roi_v = (larcv::EventROI*)(fMgr.get_data(larcv::kProductROI, "tpc"));
