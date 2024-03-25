@@ -413,18 +413,22 @@ int LArCVMaker::FindTPCWithNeutrino(std::vector<int> tpcs, art::Event const & ev
 		for (int idaugh = 0; idaugh < part->NumberDaughters(); ++idaugh) {
 			auto d = PartList.at(part->Daughter(idaugh)-1);
 			auto mom = d->Momentum();
-			std::cout <<"  Daughter " << idaugh << "(" << part->Daughter(idaugh) << "):" << std::endl;
-			std::cout <<"    pdg: " <<d->PdgCode() << std::endl;
-			std::cout <<"    status: "<< d->StatusCode() << std::endl;
-			std::cout <<"    KinE: " << (mom.E() - mom.M()) << std::endl;
-			std::cout <<"    track id: "<< d->TrackId() << std::endl;
-			std::cout <<"    mother: "<< d->Mother() << std::endl;
+			std::cout <<"  Daughter " << idaugh << "(" << part->Daughter(idaugh) << "):" << std::endl
+								<<"    pdg: " <<d->PdgCode() << std::endl
+								<<"    status: "<< d->StatusCode() << std::endl
+								<<"    process: "<< d->Process() << std::endl
+								<<"    KinE: " << (mom.E() - mom.M()) << std::endl
+								<<"    track id: "<< d->TrackId() << std::endl
+								<<"    mother: "<< d->Mother() << std::endl;
 		}
 #endif
 
 		for (int idaugh = 0; idaugh < part->NumberDaughters(); ++idaugh) {
 			auto d = PartList.at(part->Daughter(idaugh)-1);
 			if (d->Mother() != trkid) continue; // this is not kaon's direct descendant
+			if ( strcmp(d->Process().c_str(), "Decay") ) continue; // this is not a daughter from the Kaon's decay. Delta rays?
+
+
 
 			auto pdg = abs(d->PdgCode());
 			auto mom = d->Momentum();

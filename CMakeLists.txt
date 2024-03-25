@@ -16,8 +16,8 @@
 # ======================================================================
 
 
-# use cmake 2.8 or later
-cmake_minimum_required (VERSION 2.8)
+# use cmake 3 or later
+cmake_minimum_required (VERSION 3.0)
 
 project(larnnbar)
 
